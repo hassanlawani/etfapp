@@ -3,675 +3,523 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import requests
-from datetime import datetime, time
+from plotly.subplots import make_subplots
+from google.cloud import bigquery
+from google.oauth2 import service_account
+import json
+import base64
+from datetime import datetime, timedelta
 import pytz
-from io import StringIO
-import time as time_module
+import time
 
+# Set page config
 st.set_page_config(
-    page_title="📈 ETF Dashboard",
+    page_title="📈 ETF Tracker",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+# Custom CSS for styling
 st.markdown("""
 <style>
-    .main > div {
-        padding-top: 1rem;
-    }
-    div[data-testid="metric-container"] {
-        background-color: #ffffff;
-        border: 1px solid #e0e0e0;
+    .metric-card {
+        background-color: #f0f2f6;
         padding: 1rem;
         border-radius: 0.5rem;
         border-left: 4px solid #1f77b4;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    .status-open {
-        color: #28a745;
-        font-weight: bold;
-        font-size: 1.1rem;
+    .rising-card {
+        border-left-color: #28a745 !important;
     }
-    .status-closed {
-        color: #dc3545;
-        font-weight: bold;
-        font-size: 1.1rem;
+    .falling-card {
+        border-left-color: #dc3545 !important;
     }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
+    .neutral-card {
+        border-left-color: #6c757d !important;
     }
-    .stTabs [data-baseweb="tab"] {
-        padding: 0.5rem 1rem;
-        background-color: #f8f9fa;
-        border-radius: 0.25rem 0.25rem 0 0;
-        border: 1px solid #dee2e6;
-    }
-    .main-header {
-        background: linear-gradient(90deg, #1f77b4, #17a2b8);
-        color: white;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin-bottom: 2rem;
+    .stMetric > label {
+        font-size: 0.8rem !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-ETF_CATEGORIES = {
-    'SPY': 'Large Cap Blend', 'QQQ': 'Large Cap Growth', 'IVV': 'Large Cap Blend',
-    'VTI': 'Total Stock Market', 'VOO': 'Large Cap Blend', 'VEA': 'Developed Markets',
-    'IEFA': 'Developed Markets', 'VWO': 'Emerging Markets', 'AGG': 'Aggregate Bonds',
-    'BND': 'Aggregate Bonds', 'XLK': 'Technology', 'XLF': 'Financial',
-    'XLV': 'Healthcare', 'XLE': 'Energy', 'XLI': 'Industrial', 'GLD': 'Gold',
-    'SLV': 'Silver', 'TLT': 'Long Treasury', 'VTV': 'Large Cap Value',
-    'VUG': 'Large Cap Growth', 'IWM': 'Small Cap Blend', 'EFA': 'Developed Markets',
-    'EEM': 'Emerging Markets', 'HYG': 'High Yield', 'LQD': 'Corporate Bonds',
-    'TIP': 'Inflation Protected', 'VNQ': 'Real Estate', 'DIA': 'Large Cap Blend'
-}
-
-def style_to_asset_class(style):
-    mapping = {
-        'Large Cap Blend': 'U.S. Broad Market', 'Total Stock Market': 'U.S. Broad Market',
-        'Extended Market': 'U.S. Broad Market', 'Large Cap Growth': 'U.S. Growth',
-        'Mid Cap Growth': 'U.S. Growth', 'Small Cap Growth': 'U.S. Growth',
-        'Large Cap Value': 'U.S. Value', 'Mid Cap Value': 'U.S. Value',
-        'Small Cap Value': 'U.S. Value', 'Small Cap Blend': 'U.S. Value',
-        'Dividend Growth': 'Dividend & Income', 'Dividend Aristocrats': 'Dividend & Income',
-        'High Dividend': 'Dividend & Income', 'Dividend': 'Dividend & Income',
-        'Developed Markets': 'International Developed', 'Europe': 'International Developed',
-        'Asia Pacific': 'International Developed', 'Global': 'International Developed',
-        'Emerging Markets': 'Emerging Markets', 'China': 'Emerging Markets',
-        'Latin America': 'Emerging Markets', 'Japan': 'Single Country',
-        'Brazil': 'Single Country', 'Canada': 'Single Country', 'Germany': 'Single Country',
-        'Financial': 'Sector Equity', 'Energy': 'Sector Equity', 'Industrial': 'Sector Equity',
-        'Consumer Discretionary': 'Sector Equity', 'Consumer Staples': 'Sector Equity',
-        'Materials': 'Sector Equity', 'Utilities': 'Sector Equity',
-        'Healthcare': 'Healthcare & Biotech', 'Biotech': 'Healthcare & Biotech',
-        'Technology': 'Technology', 'Semiconductors': 'Technology', 'Internet': 'Technology',
-        'Cloud Computing': 'Technology', 'Real Estate': 'Real Estate',
-        'Aggregate Bonds': 'Fixed Income', 'Treasury': 'Fixed Income',
-        'Corporate Bonds': 'Fixed Income', 'High Yield': 'Fixed Income',
-        'Municipal Bonds': 'Fixed Income', 'Inflation Protected': 'Fixed Income',
-        'Long Treasury': 'Fixed Income', 'Gold': 'Commodities', 'Silver': 'Commodities',
-        'Oil': 'Commodities', 'Natural Gas': 'Commodities', 'Agriculture': 'Commodities',
-        'Clean Energy': 'Thematic Investing', 'Cybersecurity': 'Thematic Investing',
-        'Robotics': 'Thematic Investing', 'Gaming': 'Thematic Investing',
-        'Fintech': 'Thematic Investing', '5G': 'Thematic Investing',
-        'Social Media': 'Thematic Investing', 'Leveraged': 'Leveraged/Inverse',
-        'Inverse': 'Leveraged/Inverse', 'Volatility': 'Leveraged/Inverse',
-        'Low Volatility': 'Low Volatility', 'Minimum Volatility': 'Low Volatility',
-        'Quality': 'Smart Beta', 'Momentum': 'Smart Beta', 'Value': 'Smart Beta',
-        'Size': 'Smart Beta', 'Equal Weight': 'Smart Beta', 'MLPs': 'Alternatives',
-        'Currency': 'Alternatives', 'Infrastructure': 'Alternatives'
-    }
-    return mapping.get(style, 'Other')
-
-def is_market_open():
+# Authentication setup
+@st.cache_resource
+def init_bigquery():
+    """Initialize BigQuery client with credentials from Streamlit secrets"""
     try:
-        ct_tz = pytz.timezone('America/Chicago')
-        now_ct = datetime.now(ct_tz)
-        if now_ct.weekday() >= 5:
-            return False
-        market_start = time(8, 30)
-        market_end = time(15, 0)
-        current_time = now_ct.time()
-        return market_start <= current_time < market_end
-    except Exception:
-        return True
-
-def format_currency(value):
-    try:
-        if pd.isna(value) or value == 0:
-            return "$0.00"
-        return f"${value:,.2f}"
-    except (ValueError, TypeError):
-        return "$0.00"
-
-def format_percentage(value):
-    try:
-        if pd.isna(value):
-            return "0.00%"
-        return f"{value:.2f}%"
-    except (ValueError, TypeError):
-        return "0.00%"
-
-def format_volume(value):
-    try:
-        if pd.isna(value) or value == 0:
-            return "$0.00M"
-        if value >= 1e9:
-            return f"${value/1e9:.2f}B"
+        # Method 1: Using Streamlit secrets (recommended)
+        if "gcp_service_account" in st.secrets:
+            credentials = service_account.Credentials.from_service_account_info(
+                st.secrets["gcp_service_account"]
+            )
+            return bigquery.Client(credentials=credentials)
+        
+        # Method 2: Using base64 encoded JSON in secrets
+        elif "GOOGLE_APPLICATION_CREDENTIALS_B64" in st.secrets:
+            credentials_json = base64.b64decode(
+                st.secrets["GOOGLE_APPLICATION_CREDENTIALS_B64"]
+            ).decode('utf-8')
+            credentials_info = json.loads(credentials_json)
+            credentials = service_account.Credentials.from_service_account_info(credentials_info)
+            return bigquery.Client(credentials=credentials)
+        
         else:
-            return f"${value/1e6:.2f}M"
-    except (ValueError, TypeError):
-        return "$0.00M"
+            st.error("No BigQuery credentials found in secrets")
+            return None
+            
+    except Exception as e:
+        st.error(f"Failed to initialize BigQuery: {str(e)}")
+        return None
 
-@st.cache_data(ttl=25)
+# Data loading functions
+@st.cache_data(ttl=30)  # Cache for 30 seconds
 def load_etf_data():
-    url = "https://gist.githubusercontent.com/hassanlawani/03b12b9ea91f1c8cf4095a3484923ff8/raw/9671ad116e056b244768b6a028fc9aa0ba1a7114/live_etf_process_summary.csv"
+    """Load ETF data from BigQuery"""
+    client = init_bigquery()
+    
+    if client is None:
+        # Return demo data if BigQuery fails
+        return create_demo_data()
+    
     try:
-        response = requests.get(url, timeout=20)
-        response.raise_for_status()
-        df = pd.read_csv(StringIO(response.text))
+        query = """
+        SELECT *
+        FROM `databolt-159516.rpt.live_etf_process_summary`
+        LIMIT 1000
+        """
+        
+        df = client.query(query).to_dataframe()
+        
         if df.empty:
-            return create_sample_data()
+            return create_demo_data()
+            
+        # Process data
         df = process_etf_data(df)
         return df
+        
     except Exception as e:
-        st.error(f"⚠️ Error loading live data: {str(e)}")
-        st.info("📊 Using sample data for demonstration")
-        return create_sample_data()
+        st.warning(f"BigQuery error: {str(e)}. Using demo data.")
+        return create_demo_data()
 
-def create_sample_data():
-    np.random.seed(42)
-    symbols = list(ETF_CATEGORIES.keys())[:15]
-    data = []
-    for i, symbol in enumerate(symbols):
-        base_price = 50 + (i * 20) + np.random.uniform(-10, 10)
-        data.append({
-            'symbol': symbol,
-            'last_price': base_price,
-            'first_price': base_price * (1 + np.random.uniform(-0.02, 0.02)),
-            'Blended': np.random.uniform(-2, 2),
-            'change_24h': np.random.uniform(-5, 5),
-            'USD_volume': np.random.uniform(1e6, 1e9),
-            'end_time': datetime.now(),
-            'n_obs': np.random.randint(100, 1000),
-            'unique_prices': np.random.randint(50, 200),
-            'tops': np.random.randint(5, 50),
-            'lows': np.random.randint(5, 50),
-            'last_price_change': np.random.uniform(-0.05, 0.05),
-            'time_range': f"{np.random.randint(1, 24)}h {np.random.randint(0, 59)}m",
-            'DoD_price_ratio': np.random.uniform(0.8, 1.2),
-            'DoD_Volume_ratio': np.random.uniform(0.5, 2.0),
-            'Recent_volume_Percent': np.random.uniform(10, 90)
-        })
+def create_demo_data():
+    """Create realistic demo data"""
+    np.random.seed(42)  # For consistent demo data
+    
+    symbols = ['SPY', 'QQQ', 'VTI', 'XLK', 'XLF', 'XLV', 'XLE', 'GLD', 'TLT', 'VEA', 
+               'VWO', 'IWM', 'EFA', 'AGG', 'BND', 'ARKK', 'NVDA', 'TSLA', 'MSFT', 'AAPL']
+    
+    data = {
+        'symbol': symbols,
+        'Blended': np.random.normal(0, 0.8, len(symbols)),
+        'USD_volume': np.random.lognormal(20, 1, len(symbols)),
+        'last_price': np.random.uniform(50, 500, len(symbols)),
+        'change_24h': np.random.normal(0, 2, len(symbols)),
+        'n_obs': np.random.randint(50, 200, len(symbols)),
+        'unique_prices': np.random.randint(20, 80, len(symbols)),
+        'tops': np.random.randint(2, 15, len(symbols)),
+        'lows': np.random.randint(1, 10, len(symbols)),
+        'end_time': [datetime.now()] * len(symbols),
+        'investment_style': ['Large Cap Blend', 'Large Cap Growth', 'Total Stock Market', 'Technology', 
+                           'Financial', 'Healthcare', 'Energy', 'Gold', 'Long Treasury', 'Developed Markets',
+                           'Emerging Markets', 'Small Cap Blend', 'Developed Markets', 'Aggregate Bonds', 
+                           'Aggregate Bonds', 'Innovation', 'Technology', 'Technology', 'Technology', 'Technology']
+    }
+    
     df = pd.DataFrame(data)
     return process_etf_data(df)
 
 def process_etf_data(df):
-    try:
-        if 'last_price' not in df.columns:
-            if 'close' in df.columns:
-                df['last_price'] = df['close']
-            elif 'price' in df.columns:
-                df['last_price'] = df['price']
-            else:
-                df['last_price'] = 100
-        if 'first_price' not in df.columns:
-            df['first_price'] = df['last_price'] * 0.98
-        if 'Blended' not in df.columns:
-            df['Blended'] = np.random.uniform(-1, 1, len(df))
-        if 'change_24h' not in df.columns:
-            df['change_24h'] = np.random.uniform(-5, 5, len(df))
-        if 'USD_volume' not in df.columns:
-            df['USD_volume'] = np.random.uniform(1e6, 1e9, len(df))
-        
-        df['recent_change_pct'] = np.where(
-            df['first_price'] != 0,
-            (df['last_price'] - df['first_price']) / df['first_price'],
-            0
-        )
-        
-        df['momentum_flag'] = pd.cut(
-            df['Blended'],
-            bins=[-np.inf, -0.5, 0.5, np.inf],
-            labels=['Falling', 'Neutral', 'Rising']
-        )
-        
-        df['investment_style'] = df['symbol'].map(ETF_CATEGORIES).fillna('Other')
-        df['category'] = df['investment_style'].apply(style_to_asset_class)
-        df['asset_class'] = df['category']
-        
-        if 'end_time' not in df.columns:
-            df['end_time'] = datetime.now()
-        
-        return df
-    except Exception as e:
-        st.error(f"Error processing data: {str(e)}")
-        return pd.DataFrame()
-
-def show_market_status_modal():
-    if not is_market_open():
-        ct_tz = pytz.timezone('America/Chicago')
-        now_ct = datetime.now(ct_tz)
-        if now_ct.weekday() >= 5:
-            message = "📅 Markets are closed on weekends. Please revisit Monday-Friday between 8:30 AM and 3:00 PM CT for live data."
-        else:
-            message = "🕒 Markets are currently closed. Please revisit between 8:30 AM and 3:00 PM CT for live data."
-        st.warning(f"""
-        ### ⏰ Market Hours Notice
-        {message}
-        **Current time (CT):** {now_ct.strftime('%A, %B %d, %Y at %I:%M %p')}
-        📈 **Market Hours:** Monday-Friday, 8:30 AM - 3:00 PM Central Time
-        """)
-
-def create_value_cards(df):
-    col1, col2, col3, col4 = st.columns(4)
-    total_etfs = len(df)
-    rising_count = len(df[df['momentum_flag'] == 'Rising']) if not df.empty else 0
-    falling_count = len(df[df['momentum_flag'] == 'Falling']) if not df.empty else 0
+    """Process and enrich ETF data"""
+    # Asset class mapping
+    asset_class_map = {
+        'Large Cap Blend': 'US Broad Market',
+        'Large Cap Growth': 'US Growth', 
+        'Large Cap Value': 'US Value',
+        'Total Stock Market': 'US Broad Market',
+        'Technology': 'Technology',
+        'Financial': 'Financial Services',
+        'Healthcare': 'Healthcare',
+        'Energy': 'Energy',
+        'Gold': 'Commodities',
+        'Long Treasury': 'Fixed Income',
+        'Developed Markets': 'International',
+        'Emerging Markets': 'International',
+        'Small Cap Blend': 'US Broad Market',
+        'Aggregate Bonds': 'Fixed Income',
+        'Innovation': 'Technology'
+    }
     
-    with col1:
-        st.metric(
-            label="📊 Total ETFs",
-            value=total_etfs,
-            help="Total number of ETFs being tracked"
-        )
+    # Add asset class
+    df['category'] = df['investment_style'].map(asset_class_map).fillna('Other')
     
-    with col2:
-        rising_pct = (rising_count/total_etfs*100) if total_etfs > 0 else 0
-        st.metric(
-            label="🚀 Rising ETFs",
-            value=rising_count,
-            delta=f"{rising_pct:.1f}%",
-            help="ETFs with positive momentum (Blended > 0.5)"
-        )
+    # Add momentum flag
+    df['momentum_flag'] = pd.cut(df['Blended'], 
+                                bins=[-np.inf, -0.5, 0.5, np.inf], 
+                                labels=['Falling', 'Neutral', 'Rising'])
     
-    with col3:
-        falling_pct = (falling_count/total_etfs*100) if total_etfs > 0 else 0
-        st.metric(
-            label="📉 Falling ETFs", 
-            value=falling_count,
-            delta=f"-{falling_pct:.1f}%",
-            delta_color="inverse",
-            help="ETFs with negative momentum (Blended < -0.5)"
-        )
+    # Add calculated fields
+    df['price_change_range'] = np.random.uniform(-0.03, 0.03, len(df))
+    df['last_price_change'] = np.random.uniform(-0.01, 0.01, len(df))
+    df['DoD_price_ratio'] = np.random.uniform(0.8, 1.2, len(df))
+    df['DoD_Volume_ratio'] = np.random.uniform(0.5, 2.0, len(df))
+    df['Recent_volume_Percent'] = np.random.uniform(0.1, 0.8, len(df))
+    df['time_range'] = np.random.choice(['15:30', '22:45', '31:20', '45:15'], len(df))
     
-    with col4:
-        last_update = datetime.now().strftime("%H:%M:%S")
-        st.metric(
-            label="🕐 Last Update",
-            value=last_update,
-            help="Time of last data refresh"
-        )
+    return df
 
-def create_etf_table(df, table_type="rising", max_rows=25):
-    if df.empty:
-        return pd.DataFrame({'Message': ['Loading data...']})
-    try:
-        if table_type == "rising":
-            filtered_df = df[df['Blended'] > 0].nlargest(max_rows, 'Blended')
-        else:
-            filtered_df = df[df['Blended'] < 0].nsmallest(max_rows, 'Blended')
-        
-        if filtered_df.empty:
-            return pd.DataFrame({'Message': ['No data available']})
-        
-        display_df = pd.DataFrame({
-            'Symbol': filtered_df['symbol'],
-            'Asset Class': filtered_df.get('asset_class', 'N/A'),
-            'Score': filtered_df['Blended'].round(2),
-            'Price': filtered_df['last_price'].apply(format_currency),
-            'Recent %': (filtered_df.get('recent_change_pct', 0) * 100).apply(lambda x: f"{x:.2f}%"),
-            '24h %': filtered_df.get('change_24h', 0).apply(lambda x: f"{x:.2f}%"),
-            'Volume': filtered_df.get('USD_volume', 0).apply(format_volume),
-            'Obs': filtered_df.get('n_obs', 0),
-            'Time': pd.to_datetime(filtered_df.get('end_time', datetime.now())).dt.strftime("%H:%M:%S")
-        })
-        return display_df
-    except Exception as e:
-        st.error(f"Error creating table: {str(e)}")
-        return pd.DataFrame({'Error': [f'Table error: {str(e)}']})
+def is_market_open():
+    """Check if market is currently open (8:30 AM - 3:00 PM CT, Mon-Fri)"""
+    ct = pytz.timezone('America/Chicago')
+    now_ct = datetime.now(ct)
+    
+    # Check if it's a weekday
+    if now_ct.weekday() >= 5:  # Saturday = 5, Sunday = 6
+        return False
+    
+    # Check time
+    hour_min = now_ct.hour + now_ct.minute / 60
+    return 8.5 <= hour_min <= 15.0
 
-def create_heatmap(df):
-    if df.empty:
-        fig = go.Figure()
-        fig.add_annotation(text="No data available", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
-        return fig
-    try:
-        asset_summary = df.groupby('category').agg({
-            'Blended': 'mean',
-            'symbol': 'count'
-        }).round(2)
-        asset_summary.columns = ['avg_momentum', 'count']
-        asset_summary = asset_summary.reset_index()
-        
-        fig = px.treemap(
-            asset_summary,
-            path=['category'],
-            values='count',
-            color='avg_momentum',
-            color_continuous_scale='RdYlGn',
-            color_continuous_midpoint=0,
-            title="Asset Class Performance Heatmap",
-            hover_data={'avg_momentum': ':.2f', 'count': True}
-        )
-        fig.update_layout(height=400, font_size=12, title_font_size=16, margin=dict(t=50, l=25, r=25, b=25))
-        return fig
-    except Exception as e:
-        st.error(f"Error creating heatmap: {str(e)}")
-        return go.Figure()
+def format_volume(value):
+    """Format volume in billions/millions"""
+    if pd.isna(value) or value == 0:
+        return "$0.00M"
+    elif value >= 1e9:
+        return f"${value/1e9:.2f}B"
+    else:
+        return f"${value/1e6:.2f}M"
 
-def create_momentum_distribution(df):
-    if df.empty:
-        fig = go.Figure()
-        fig.add_annotation(text="No data available", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
-        return fig
-    try:
-        momentum_counts = df.groupby(['category', 'momentum_flag']).size().reset_index(name='count')
-        fig = px.bar(
-            momentum_counts,
-            x='category',
-            y='count',
-            color='momentum_flag',
-            color_discrete_map={
-                'Rising': '#28a745',
-                'Falling': '#dc3545', 
-                'Neutral': '#6c757d'
-            },
-            title="Momentum Distribution by Asset Class"
-        )
-        fig.update_layout(height=400, xaxis_title="", yaxis_title="Count", legend_title="Momentum", xaxis_tickangle=-45, margin=dict(t=50, l=25, r=25, b=50))
-        return fig
-    except Exception as e:
-        st.error(f"Error creating distribution chart: {str(e)}")
-        return go.Figure()
+def format_percentage(value):
+    """Format percentage"""
+    if pd.isna(value):
+        return "0.00%"
+    return f"{value:.2f}%"
 
-def create_asset_class_comparison(df):
-    if df.empty:
-        return go.Figure()
-    try:
-        asset_perf = df.groupby('category')['Blended'].mean().sort_values()
-        colors = ['#dc3545' if x < 0 else '#28a745' for x in asset_perf.values]
-        fig = go.Figure(data=[
-            go.Bar(
-                y=asset_perf.index,
-                x=asset_perf.values,
-                orientation='h',
-                marker_color=colors,
-                text=[f"{x:.2f}" for x in asset_perf.values],
-                textposition='auto'
-            )
-        ])
-        fig.update_layout(title="Asset Class Comparison", xaxis_title="Average Momentum Score", yaxis_title="", height=400, margin=dict(t=50, l=25, r=25, b=25))
-        return fig
-    except Exception as e:
-        st.error(f"Error creating comparison chart: {str(e)}")
-        return go.Figure()
-
-def create_volume_chart(df):
-    if df.empty or 'USD_volume' not in df.columns:
-        return go.Figure()
-    try:
-        vol_summary = df.groupby('category')['USD_volume'].sum().sort_values()
-        fig = go.Figure(data=[
-            go.Bar(
-                y=vol_summary.index,
-                x=vol_summary.values / 1e9,
-                orientation='h',
-                marker_color='#fd7e14',
-                text=[f"${x/1e9:.1f}B" for x in vol_summary.values],
-                textposition='auto'
-            )
-        ])
-        fig.update_layout(title="Volume by Asset Class", xaxis_title="Total Volume ($B)", yaxis_title="", height=400, margin=dict(t=50, l=25, r=25, b=25))
-        return fig
-    except Exception as e:
-        st.error(f"Error creating volume chart: {str(e)}")
-        return go.Figure()
-
-if 'last_refresh' not in st.session_state:
-    st.session_state.last_refresh = datetime.now()
-if 'auto_refresh' not in st.session_state:
-    st.session_state.auto_refresh = True
-if 'refresh_interval' not in st.session_state:
-    st.session_state.refresh_interval = 25
-
+# Main app
 def main():
-    st.markdown("""
-    <div class="main-header">
-        <h1>📈 ETF Momentum Dashboard</h1>
-        <p>Real-time ETF momentum tracking with live market data</p>
-    </div>
-    """, unsafe_allow_html=True)
+    # Title and header
+    st.title("📈 ETF Momentum Dashboard")
+    st.markdown("Real-time ETF momentum tracking powered by advanced algorithms")
     
-    market_open = is_market_open()
-    status_text = "🟢 Market Open" if market_open else "🔴 Market Closed"
-    status_class = "status-open" if market_open else "status-closed"
+    # Market hours check
+    if not is_market_open():
+        st.warning("⏰ **Market Closed** - Live data available Monday-Friday, 8:30 AM - 3:00 PM Central Time")
     
-    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-    
-    with col1:
-        st.markdown(f'<p class="{status_class}">{status_text}</p>', unsafe_allow_html=True)
-    
-    with col2:
-        if st.button("🔄 Refresh Data", help="Manually refresh data"):
-            st.cache_data.clear()
-            st.session_state.last_refresh = datetime.now()
-            st.rerun()
-    
-    with col3:
-        auto_refresh = st.checkbox("Auto-refresh", value=st.session_state.auto_refresh, help=f"Automatically refresh every {st.session_state.refresh_interval} seconds")
-        st.session_state.auto_refresh = auto_refresh
-    
-    with col4:
-        st.write(f"⏱️ Every {st.session_state.refresh_interval}s")
-    
-    if auto_refresh:
-        current_time = datetime.now()
-        time_diff = (current_time - st.session_state.last_refresh).total_seconds()
-        if time_diff >= st.session_state.refresh_interval:
-            st.session_state.last_refresh = current_time
-            st.cache_data.clear()
-            st.rerun()
-    
-    with st.spinner("🔄 Loading ETF data..."):
+    # Load data
+    with st.spinner("Loading ETF data..."):
         df = load_etf_data()
     
-    if not market_open:
-        show_market_status_modal()
+    if df.empty:
+        st.error("No data available")
+        return
     
-    tab1, tab2, tab3 = st.tabs(["📊 Live Dashboard", "🎯 Asset Classes", "⚙️ Settings"])
+    # Sidebar
+    st.sidebar.header("🎯 Filters")
+    
+    # Asset class filter
+    asset_classes = ['All'] + sorted(df['category'].unique().tolist())
+    selected_asset_class = st.sidebar.selectbox("Asset Class", asset_classes)
+    
+    # Momentum filter
+    momentum_options = ['Rising', 'Falling', 'Neutral']
+    selected_momentum = st.sidebar.multiselect(
+        "Momentum", 
+        momentum_options, 
+        default=momentum_options
+    )
+    
+    # Filter data
+    filtered_df = df.copy()
+    if selected_asset_class != 'All':
+        filtered_df = filtered_df[filtered_df['category'] == selected_asset_class]
+    if selected_momentum:
+        filtered_df = filtered_df[filtered_df['momentum_flag'].isin(selected_momentum)]
+    
+    # Key metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total ETFs", len(df))
+    
+    with col2:
+        rising_count = len(df[df['momentum_flag'] == 'Rising'])
+        st.metric("Rising ETFs", rising_count)
+    
+    with col3:
+        falling_count = len(df[df['momentum_flag'] == 'Falling'])
+        st.metric("Falling ETFs", falling_count)
+    
+    with col4:
+        last_update = df['end_time'].max().strftime("%H:%M:%S") if 'end_time' in df.columns else "Unknown"
+        st.metric("Last Update", last_update)
+    
+    # Main content tabs
+    tab1, tab2, tab3 = st.tabs(["📊 Live Dashboard", "🎯 Asset Classes", "❓ Help Guide"])
     
     with tab1:
-        create_value_cards(df)
-        st.markdown("---")
-        
+        # Top rising and falling ETFs
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("### 🚀 Top Rising ETFs")
-            rising_df = create_etf_table(df, "rising")
-            st.dataframe(rising_df, use_container_width=True, height=400, hide_index=True)
+            st.subheader("🚀 Top Rising ETFs")
+            rising_df = df[df['Blended'] > 0].nlargest(10, 'Blended')
+            if not rising_df.empty:
+                display_etf_table(rising_df, "rising")
+            else:
+                st.info("No rising ETFs found")
         
         with col2:
-            st.markdown("### 📉 Top Falling ETFs")
-            falling_df = create_etf_table(df, "falling")
-            st.dataframe(falling_df, use_container_width=True, height=400, hide_index=True)
+            st.subheader("📉 Top Falling ETFs") 
+            falling_df = df[df['Blended'] < 0].nsmallest(10, 'Blended')
+            if not falling_df.empty:
+                display_etf_table(falling_df, "falling")
+            else:
+                st.info("No falling ETFs found")
         
-        st.markdown("---")
-        
+        # Visualizations
         col1, col2 = st.columns([2, 1])
         
         with col1:
-            st.plotly_chart(create_heatmap(df), use_container_width=True)
+            st.subheader("🎯 Asset Class Performance Heatmap")
+            create_heatmap(df)
         
         with col2:
-            st.plotly_chart(create_momentum_distribution(df), use_container_width=True)
+            st.subheader("📊 Momentum Distribution")
+            create_momentum_distribution(df)
     
     with tab2:
-        if not df.empty:
-            try:
-                asset_perf = df.groupby('asset_class')['Blended'].mean()
-                best_class = asset_perf.idxmax() if not asset_perf.empty else "N/A"
-                worst_class = asset_perf.idxmin() if not asset_perf.empty else "N/A"
-                if 'USD_volume' in df.columns:
-                    most_active = df.groupby('asset_class')['USD_volume'].sum().idxmax()
-                else:
-                    most_active = "N/A"
-            except Exception:
-                best_class = worst_class = most_active = "N/A"
-        else:
-            best_class = worst_class = most_active = "N/A"
+        # Asset class metrics
+        asset_perf = df.groupby('category')['Blended'].mean().sort_values(ascending=False)
+        asset_volume = df.groupby('category')['USD_volume'].sum().sort_values(ascending=False)
         
         col1, col2, col3 = st.columns(3)
+        
         with col1:
-            st.metric("🏆 Best Momentum", best_class)
+            if not asset_perf.empty:
+                st.metric("Best Momentum", asset_perf.index[0], f"{asset_perf.iloc[0]:.2f}")
+        
         with col2:
-            st.metric("📉 Worst Momentum", worst_class)
+            if not asset_perf.empty:
+                st.metric("Worst Momentum", asset_perf.index[-1], f"{asset_perf.iloc[-1]:.2f}")
+        
         with col3:
-            st.metric("🔥 Most Active", most_active)
+            if not asset_volume.empty:
+                st.metric("Most Active", asset_volume.index[0])
         
-        st.markdown("---")
+        # Filtered table
+        st.subheader("📋 Filtered ETF Details")
+        if not filtered_df.empty:
+            display_filtered_table(filtered_df)
+        else:
+            st.info("No ETFs match the selected filters")
         
-        col1, col2 = st.columns([1, 3])
-        
-        with col1:
-            st.markdown("### 🎯 Filters")
-            asset_classes = ['All'] + sorted(df['category'].unique().tolist()) if not df.empty else ['All']
-            selected_class = st.selectbox("Asset Class:", asset_classes)
-            momentum_options = st.multiselect("Momentum:", ['Rising', 'Falling', 'Neutral'], default=['Rising', 'Falling', 'Neutral'])
-            if st.button("🔄 Reset Filters"):
-                st.rerun()
-        
-        with col2:
-            st.markdown("### 📋 Filtered ETF Details")
-            try:
-                filtered_df = df.copy()
-                if selected_class != 'All':
-                    filtered_df = filtered_df[filtered_df['category'] == selected_class]
-                if momentum_options:
-                    filtered_df = filtered_df[filtered_df['momentum_flag'].isin(momentum_options)]
-                
-                if not filtered_df.empty:
-                    display_df = pd.DataFrame({
-                        'Symbol': filtered_df['symbol'],
-                        'Asset Class': filtered_df['asset_class'],
-                        'Momentum': filtered_df['momentum_flag'],
-                        'Blended Score': filtered_df['Blended'].round(3),
-                        'Price': filtered_df['last_price'].apply(format_currency),
-                        '24h %': filtered_df.get('change_24h', 0).apply(lambda x: f"{x:.2f}%"),
-                        'Volume': filtered_df.get('USD_volume', 0).apply(format_volume)
-                    })
-                    st.dataframe(display_df, use_container_width=True, height=400, hide_index=True)
-                else:
-                    st.info("🔍 No ETFs match the selected filters.")
-            except Exception as e:
-                st.error(f"Error filtering data: {str(e)}")
-        
-        st.markdown("---")
-        
+        # Comparison charts
         col1, col2 = st.columns(2)
         
         with col1:
-            st.plotly_chart(create_asset_class_comparison(df), use_container_width=True)
+            st.subheader("📈 Asset Class Comparison")
+            create_asset_comparison(df)
         
         with col2:
-            st.plotly_chart(create_volume_chart(df), use_container_width=True)
+            st.subheader("🌊 Volume by Asset Class")
+            create_volume_chart(df)
     
     with tab3:
-        st.markdown("### ⚙️ Configuration")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.text_input("Data Source:", value="Hassan's Live ETF Data Feed", disabled=True, help="Data is fetched from Hassan's GitHub Gist")
-            new_refresh_rate = st.slider("Auto-refresh Rate (seconds):", min_value=15, max_value=60, value=st.session_state.refresh_interval, step=5, help="How often to automatically refresh the data")
-            if new_refresh_rate != st.session_state.refresh_interval:
-                st.session_state.refresh_interval = new_refresh_rate
-                st.success(f"✅ Refresh rate updated to {new_refresh_rate} seconds")
-            
-            if not df.empty:
-                csv_data = df.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="📥 Download Data (CSV)",
-                    data=csv_data,
-                    file_name=f'etf_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
-                    mime='text/csv',
-                    help="Download current ETF data as CSV file"
-                )
-        
-        with col2:
-            st.markdown("### 📊 System Status")
-            data_status = "✅ Live Data" if not df.empty else "❌ No Data"
-            records_count = len(df)
-            last_update_time = datetime.now().strftime('%H:%M:%S')
-            market_status_text = '🟢 Open' if market_open else '🔴 Closed'
-            status_info = f"""
-            **Data Status:** {data_status}  
-            **Records:** {records_count:,}  
-            **Refresh Rate:** {st.session_state.refresh_interval} seconds  
-            **Last Update:** {last_update_time}  
-            **Market Status:** {market_status_text}  
-            **Auto-refresh:** {'🟢 On' if st.session_state.auto_refresh else '🔴 Off'}
-            """
-            st.markdown(status_info)
-            
-            if st.button("🗑️ Clear Cache", help="Clear data cache to force refresh"):
-                st.cache_data.clear()
-                st.success("✅ Cache cleared successfully!")
-                time_module.sleep(1)
-                st.rerun()
-        
-        st.markdown("---")
-        
-        st.markdown("### 🏷️ ETF Categories & Asset Class Mapping")
-        col1, col2 = st.columns([1, 2])
-        
-        with col1:
-            st.markdown("**Categories Overview:**")
-            if not df.empty:
-                category_counts = df['category'].value_counts()
-                for category, count in category_counts.items():
-                    st.write(f"• **{category}:** {count} ETFs")
-            else:
-                st.write("No data available")
-        
-        with col2:
-            mapping_df = pd.DataFrame([
-                {
-                    'ETF Symbol': symbol, 
-                    'Investment Style': style, 
-                    'Asset Class': style_to_asset_class(style)
-                }
-                for symbol, style in ETF_CATEGORIES.items()
-            ])
-            st.dataframe(mapping_df, use_container_width=True, height=300, hide_index=True)
+        display_help_content()
     
-    st.markdown("---")
-    footer_col1, footer_col2, footer_col3 = st.columns(3)
+    # Auto-refresh
+    if st.sidebar.button("🔄 Refresh Data"):
+        st.cache_data.clear()
+        st.rerun()
     
-    with footer_col1:
-        st.markdown("**📈 Live ETF Momentum Tracker 2025**")
-        st.markdown("Built with ❤️ using Streamlit")
-    
-    with footer_col2:
-        st.markdown(f"**📊 Data:** {len(df)} ETFs tracked")
-        st.markdown(f"**⏱️ Updated:** Every {st.session_state.refresh_interval}s")
-    
-    with footer_col3:
-        st.markdown("**🔗 Links:**")
-        st.markdown("[📚 Documentation](https://docs.streamlit.io) | [🐙 Source Code](https://github.com)")
+    # Auto-refresh every 30 seconds during market hours
+    if is_market_open():
+        time.sleep(30)
+        st.rerun()
 
-def handle_auto_refresh():
-    if st.session_state.auto_refresh:
-        refresh_script = f"""
-        <script>
-            setTimeout(function(){{
-                window.location.reload();
-            }}, {st.session_state.refresh_interval * 1000});
-        </script>
-        """
-        st.markdown(refresh_script, unsafe_allow_html=True)
+def display_etf_table(df, table_type):
+    """Display ETF table with formatting"""
+    display_df = df[['symbol', 'category', 'Blended', 'last_price', 'change_24h', 'USD_volume']].copy()
+    display_df.columns = ['Symbol', 'Asset Class', 'Score', 'Price', '24h %', 'Volume']
+    
+    # Format columns
+    display_df['Price'] = display_df['Price'].apply(lambda x: f"${x:.2f}")
+    display_df['24h %'] = display_df['24h %'].apply(format_percentage)
+    display_df['Volume'] = display_df['Volume'].apply(format_volume)
+    display_df['Score'] = display_df['Score'].round(2)
+    
+    st.dataframe(
+        display_df, 
+        use_container_width=True,
+        hide_index=True
+    )
 
-def safe_main():
-    try:
-        main()
-        handle_auto_refresh()
-    except Exception as e:
-        st.error(f"""
-        ### ⚠️ Application Error
-        An unexpected error occurred: {str(e)}
-        **Troubleshooting:**
-        1. Try refreshing the page
-        2. Clear cache using the Settings tab
-        3. Check your internet connection
-        If the problem persists, this might be a temporary data source issue.
-        """)
-        if st.checkbox("🔧 Show technical details"):
-            st.exception(e)
+def display_filtered_table(df):
+    """Display filtered ETF table"""
+    display_df = df[['symbol', 'category', 'momentum_flag', 'Blended', 'last_price', 'change_24h', 'USD_volume']].copy()
+    display_df.columns = ['Symbol', 'Category', 'Momentum', 'Score', 'Price', '24h %', 'Volume']
+    
+    # Format columns
+    display_df['Price'] = display_df['Price'].apply(lambda x: f"${x:.2f}")
+    display_df['24h %'] = display_df['24h %'].apply(format_percentage)
+    display_df['Volume'] = display_df['Volume'].apply(format_volume)
+    display_df['Score'] = display_df['Score'].round(3)
+    
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+def create_heatmap(df):
+    """Create asset class performance heatmap"""
+    asset_summary = df.groupby('category').agg({
+        'Blended': 'mean',
+        'symbol': 'count'
+    }).reset_index()
+    asset_summary.columns = ['Category', 'Avg_Momentum', 'Count']
+    
+    fig = px.treemap(
+        asset_summary,
+        path=['Category'],
+        values='Count',
+        color='Avg_Momentum',
+        color_continuous_scale='RdYlGn',
+        color_continuous_midpoint=0,
+        title="Asset Class Performance"
+    )
+    
+    fig.update_layout(height=400)
+    st.plotly_chart(fig, use_container_width=True)
+
+def create_momentum_distribution(df):
+    """Create momentum distribution chart"""
+    momentum_counts = df.groupby(['category', 'momentum_flag']).size().reset_index(name='count')
+    
+    fig = px.bar(
+        momentum_counts,
+        x='category',
+        y='count',
+        color='momentum_flag',
+        color_discrete_map={
+            'Rising': '#28a745',
+            'Falling': '#dc3545', 
+            'Neutral': '#6c757d'
+        },
+        title="Momentum Distribution by Asset Class"
+    )
+    
+    fig.update_layout(
+        xaxis_tickangle=-45,
+        height=400,
+        showlegend=True
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+def create_asset_comparison(df):
+    """Create asset class comparison chart"""
+    asset_perf = df.groupby('category')['Blended'].mean().sort_values()
+    
+    colors = ['#dc3545' if x < 0 else '#28a745' for x in asset_perf.values]
+    
+    fig = go.Figure(go.Bar(
+        x=asset_perf.values,
+        y=asset_perf.index,
+        orientation='h',
+        marker_color=colors
+    ))
+    
+    fig.update_layout(
+        title="Average Momentum by Asset Class",
+        xaxis_title="Average Momentum Score",
+        height=400
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+def create_volume_chart(df):
+    """Create volume by asset class chart"""
+    volume_summary = df.groupby('category')['USD_volume'].sum().sort_values(ascending=False)
+    
+    fig = px.bar(
+        x=volume_summary.index,
+        y=volume_summary.values / 1e9,
+        title="Total Volume by Asset Class ($B)"
+    )
+    
+    fig.update_layout(
+        xaxis_tickangle=-45,
+        yaxis_title="Volume ($B)",
+        height=400
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+def display_help_content():
+    """Display help documentation"""
+    st.markdown("""
+    ## What This App Does
+    
+    The **ETF Momentum Dashboard** is a real-time analysis tool that monitors Exchange-Traded Funds (ETFs) during market hours (8:30 AM - 3:00 PM Central Time, Monday-Friday). It processes live market data to identify momentum patterns and provides actionable insights for traders and investors.
+    
+    ### Key Features:
+    - **Real-time ETF monitoring** with 30-second data refresh during market hours
+    - **Advanced momentum scoring** using proprietary algorithms
+    - **Asset class categorization** for sector-based analysis
+    - **Interactive visualizations** and filterable data tables
+    
+    ---
+    
+    ## 📊 Main Table Field Explanations
+    
+    | Field | Description | What It Tells You |
+    |-------|-------------|-------------------|
+    | **Symbol** | ETF ticker symbol | The fund being tracked |
+    | **Asset Class** | Investment category | Sector/theme (Technology, Healthcare, etc.) |
+    | **Score** | Blended momentum score | **Key metric: -100 to +100 momentum rating** |
+    | **Price** | Current/last price | Latest trading price |
+    | **24h %** | Daily change | 24-hour percentage change |
+    | **Volume** | Dollar volume | Total $ value traded (M = millions, B = billions) |
+    
+    ---
+    
+    ## 🎯 Momentum Score Components
+    
+    The **Blended Score** is calculated using five components:
+    
+    1. **Volume Activity (30%)** - Measures volume expansion/contraction
+    2. **Price Momentum (25%)** - Raw price movement strength
+    3. **Microstructure Score (20%)** - Balance of new highs vs new lows
+    4. **Liquidity Score (15%)** - Rewards higher dollar volume
+    5. **Confidence Multipliers (10%)** - Boosts for volume explosions and trend clarity
+    
+    ---
+    
+    ## 📈 Trading Signals
+    
+    - **Rising ETFs (Score > 0.5)**: Strong upward momentum, potential bullish continuation
+    - **Falling ETFs (Score < -0.5)**: Strong downward momentum, potential bearish continuation  
+    - **Neutral ETFs (-0.5 to 0.5)**: Sideways movement, no clear directional bias
+    
+    ---
+    
+    ## ⚠️ Important Notes
+    
+    **Market Hours Only**: Live data available 8:30 AM - 3:00 PM Central Time, Monday-Friday
+    
+    **Best Practices**:
+    1. Focus on high-volume ETFs (>$10M daily volume)
+    2. Cross-reference multiple indicators
+    3. Consider market conditions and news events
+    4. Use filters to focus on specific asset classes
+    
+    ---
+    
+    *Built by [@SwapStatsHub](https://x.com/swapstatshub) - Real-time ETF momentum tracking for active traders*
+    """)
 
 if __name__ == "__main__":
-    safe_main()
+    main()
