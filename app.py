@@ -294,23 +294,24 @@ def main():
     
     with tab1:
         # Top rising and falling ETFs
-        col1, col2 = st.columns(2)
-        
-  with col1:
-    st.subheader("🚀 Top Rising ETFs")
-    rising_df = df[df['Blended'] > 0]
-    if not rising_df.empty:
-        display_etf_table(df, "rising")  # Pass full df, function handles filtering
-    else:
-        st.info("No rising ETFs found")
-
-with col2:
-    st.subheader("📉 Top Falling ETFs") 
-    falling_df = df[df['Blended'] < 0]
-    if not falling_df.empty:
-        display_etf_table(df, "falling")  # Pass full df, function handles filtering
-    else:
-        st.info("No falling ETFs found")
+# Top rising and falling ETFs
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("🚀 Top Rising ETFs")
+        rising_df = df[df['Blended'] > 0]
+        if not rising_df.empty:
+            display_etf_table(df, "rising")  # Pass full df, function handles filtering
+        else:
+            st.info("No rising ETFs found")
+    
+    with col2:
+        st.subheader("📉 Top Falling ETFs") 
+        falling_df = df[df['Blended'] < 0]
+        if not falling_df.empty:
+            display_etf_table(df, "falling")  # Pass full df, function handles filtering
+        else:
+            st.info("No falling ETFs found")
         
         # Visualizations
         col1, col2 = st.columns([2, 1])
@@ -594,6 +595,7 @@ def display_help_content():
 
 if __name__ == "__main__":
     main()
+
 
 
 
