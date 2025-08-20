@@ -80,7 +80,6 @@ def load_etf_data():
     client = init_bigquery()
     
     if client is None:
-        # Return demo data if BigQuery fails
         return create_demo_data()
     
     try:
@@ -94,7 +93,10 @@ def load_etf_data():
         
         if df.empty:
             return create_demo_data()
-            
+        
+        # Debug: Show available columns
+        st.sidebar.write("Available columns:", list(df.columns))
+        
         # Process data
         df = process_etf_data(df)
         return df
@@ -132,42 +134,54 @@ def create_demo_data():
 
 def process_etf_data(df):
     """Process and enrich ETF data"""
-    # Asset class mapping
-    asset_class_map = {
-        'Large Cap Blend': 'US Broad Market',
-        'Large Cap Growth': 'US Growth', 
-        'Large Cap Value': 'US Value',
-        'Total Stock Market': 'US Broad Market',
-        'Technology': 'Technology',
-        'Financial': 'Financial Services',
-        'Healthcare': 'Healthcare',
-        'Energy': 'Energy',
-        'Gold': 'Commodities',
-        'Long Treasury': 'Fixed Income',
-        'Developed Markets': 'International',
-        'Emerging Markets': 'International',
-        'Small Cap Blend': 'US Broad Market',
-        'Aggregate Bonds': 'Fixed Income',
-        'Innovation': 'Technology'
-    }
-    
-    # Add asset class
-    df['category'] = df['investment_style'].map(asset_class_map).fillna('Other')
+    # Asset class mapping - use 'category' if it exists, otherwise create from symbol
+    if 'category' not in df.columns:
+        # Create category based on symbol patterns if investment_style doesn't exist
+        df['category'] = df['symbol'].apply(lambda x: categorize_by_symbol(x))
     
     # Add momentum flag
     df['momentum_flag'] = pd.cut(df['Blended'], 
                                 bins=[-np.inf, -0.5, 0.5, np.inf], 
                                 labels=['Falling', 'Neutral', 'Rising'])
     
-    # Add calculated fields
-    df['price_change_range'] = np.random.uniform(-0.03, 0.03, len(df))
-    df['last_price_change'] = np.random.uniform(-0.01, 0.01, len(df))
-    df['DoD_price_ratio'] = np.random.uniform(0.8, 1.2, len(df))
-    df['DoD_Volume_ratio'] = np.random.uniform(0.5, 2.0, len(df))
-    df['Recent_volume_Percent'] = np.random.uniform(0.1, 0.8, len(df))
-    df['time_range'] = np.random.choice(['15:30', '22:45', '31:20', '45:15'], len(df))
+    # Add missing calculated fields if they don't exist
+    if 'price_change_range' not in df.columns:
+        df['price_change_range'] = np.random.uniform(-0.03, 0.03, len(df))
+    if 'last_price_change' not in df.columns:
+        df['last_price_change'] = np.random.uniform(-0.01, 0.01, len(df))
+    if 'DoD_price_ratio' not in df.columns:
+        df['DoD_price_ratio'] = np.random.uniform(0.8, 1.2, len(df))
+    if 'DoD_Volume_ratio' not in df.columns:
+        df['DoD_Volume_ratio'] = np.random.uniform(0.5, 2.0, len(df))
+    if 'Recent_volume_Percent' not in df.columns:
+        df['Recent_volume_Percent'] = np.random.uniform(0.1, 0.8, len(df))
+    if 'time_range' not in df.columns:
+        df['time_range'] = np.random.choice(['15:30', '22:45', '31:20', '45:15'], len(df))
     
     return df
+
+def categorize_by_symbol(symbol):
+    """Categorize ETF by symbol if no other category exists"""
+    if symbol in ['SPY', 'VTI', 'IVV', 'VOO']:
+        return 'US Broad Market'
+    elif symbol in ['QQQ', 'XLK', 'NVDA', 'MSFT', 'AAPL']:
+        return 'Technology'
+    elif symbol in ['XLF']:
+        return 'Financial Services'
+    elif symbol in ['XLV']:
+        return 'Healthcare'
+    elif symbol in ['XLE']:
+        return 'Energy'
+    elif symbol in ['GLD', 'SLV']:
+        return 'Commodities'
+    elif symbol in ['TLT', 'AGG', 'BND']:
+        return 'Fixed Income'
+    elif symbol in ['VEA', 'EFA']:
+        return 'International'
+    elif symbol in ['VWO']:
+        return 'International'
+    else:
+        return 'Other'
 
 def is_market_open():
     """Check if market is currently open (8:30 AM - 3:00 PM CT, Mon-Fri)"""
@@ -523,3 +537,4 @@ def display_help_content():
 
 if __name__ == "__main__":
     main()
+
