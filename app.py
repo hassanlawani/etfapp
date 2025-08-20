@@ -296,21 +296,21 @@ def main():
         # Top rising and falling ETFs
         col1, col2 = st.columns(2)
         
-        with col1:
-            st.subheader("🚀 Top Rising ETFs")
-            rising_df = df[df['Blended'] > 0].nlargest(10, 'Blended')
-            if not rising_df.empty:
-                display_etf_table(rising_df, "rising")
-            else:
-                st.info("No rising ETFs found")
-        
-        with col2:
-            st.subheader("📉 Top Falling ETFs") 
-            falling_df = df[df['Blended'] < 0].nsmallest(10, 'Blended')
-            if not falling_df.empty:
-                display_etf_table(falling_df, "falling")
-            else:
-                st.info("No falling ETFs found")
+  with col1:
+    st.subheader("🚀 Top Rising ETFs")
+    rising_df = df[df['Blended'] > 0]
+    if not rising_df.empty:
+        display_etf_table(df, "rising")  # Pass full df, function handles filtering
+    else:
+        st.info("No rising ETFs found")
+
+with col2:
+    st.subheader("📉 Top Falling ETFs") 
+    falling_df = df[df['Blended'] < 0]
+    if not falling_df.empty:
+        display_etf_table(df, "falling")  # Pass full df, function handles filtering
+    else:
+        st.info("No falling ETFs found")
         
         # Visualizations
         col1, col2 = st.columns([2, 1])
@@ -374,20 +374,57 @@ def main():
         st.rerun()
 
 def display_etf_table(df, table_type):
-    """Display ETF table with formatting"""
-    display_df = df[['symbol', 'category', 'Blended', 'last_price', 'change_24h', 'USD_volume']].copy()
-    display_df.columns = ['Symbol', 'Asset Class', 'Score', 'Price', '24h %', 'Volume']
+    """Display ETF table with formatting - top 30 with scrolling"""
     
-    # Format columns
-    display_df['Price'] = display_df['Price'].apply(lambda x: f"${x:.2f}")
-    display_df['24h %'] = display_df['24h %'].apply(format_percentage)
-    display_df['Volume'] = display_df['Volume'].apply(format_volume)
-    display_df['Score'] = display_df['Score'].round(2)
+    # Get top 30 based on type
+    if table_type == "rising":
+        filtered_df = df[df['Blended'] > 0].nlargest(30, 'Blended')
+    else:
+        filtered_df = df[df['Blended'] < 0].nsmallest(30, 'Blended')
     
+    if filtered_df.empty:
+        st.info(f"No {table_type} ETFs found")
+        return
+    
+    # Create display dataframe with exact R format
+    display_df = pd.DataFrame({
+        'Symbol': filtered_df['symbol'],
+        'Asset Class': filtered_df['category'],
+        'Obs': filtered_df['n_obs'].astype(int),
+        'Prices': filtered_df['unique_prices'].astype(int),
+        'Score': filtered_df['Blended'].round(1),
+        'Tops': filtered_df['tops'].astype(int),
+        'Lows': filtered_df['lows'].astype(int),
+        'Price': filtered_df['last_price'].apply(lambda x: f"${x:.2f}"),
+        'Last %': filtered_df['last_price_change'].apply(lambda x: f"{x*100:.2f}%"),
+        'Recent %': filtered_df['price_change_range'].apply(lambda x: f"{x*100:.2f}%"),
+        '24h %': filtered_df['change_24h'].apply(lambda x: f"{x:.2f}%"),
+        'Day Vol': filtered_df['USD_volume'].apply(format_volume),
+        'Range': filtered_df['time_range'],
+        'P.Ratio': filtered_df['DoD_price_ratio'].round(2),
+        'V.Ratio': filtered_df['DoD_Volume_ratio'].round(2),
+        '10 mn Vol': filtered_df['Recent_volume_Percent'].round(2),
+        'Time': filtered_df['end_time'].dt.strftime('%H:%M:%S') if 'end_time' in filtered_df.columns else "N/A",
+        'Blended': filtered_df['Blended'].round(3)
+    })
+    
+    # Display with controlled height and horizontal scrolling
     st.dataframe(
-        display_df, 
+        display_df,
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
+        height=400,  # Fixed height with vertical scroll
+        column_config={
+            "Symbol": st.column_config.TextColumn(width="small"),
+            "Asset Class": st.column_config.TextColumn(width="medium"),
+            "Score": st.column_config.NumberColumn(
+                format="%.1f",
+                help="Momentum score (-100 to +100)"
+            ),
+            "Price": st.column_config.TextColumn(width="small"),
+            "Day Vol": st.column_config.TextColumn(width="small"),
+            "Blended": st.column_config.NumberColumn(format="%.3f")
+        }
     )
 
 def display_filtered_table(df):
@@ -557,5 +594,6 @@ def display_help_content():
 
 if __name__ == "__main__":
     main()
+
 
 
