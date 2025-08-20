@@ -275,7 +275,7 @@ def main():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Total ETFs", len(df))
+        st.metric("Total ETFs Tracked", len(df))
     
     with col2:
         rising_count = len(df[df['momentum_flag'] == 'Rising'])
@@ -627,6 +627,7 @@ The **ETF Momentum Dashboard** is a real-time analysis tool that monitors Exchan
 
 if __name__ == "__main__":
     main()
+
 
 
 
