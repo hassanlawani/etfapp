@@ -532,68 +532,102 @@ def create_volume_chart(df):
 def display_help_content():
     """Display help documentation"""
     st.markdown("""
-    ## What This App Does
     
-    The **ETF Momentum Dashboard** is a real-time analysis tool that monitors Exchange-Traded Funds (ETFs) during market hours (8:30 AM - 3:00 PM Central Time, Monday-Friday). It processes live market data to identify momentum patterns and provides actionable insights for traders and investors.
-    
-    ### Key Features:
-    - **Real-time ETF monitoring** with 30-second data refresh during market hours
-    - **Advanced momentum scoring** using proprietary algorithms
-    - **Asset class categorization** for sector-based analysis
-    - **Interactive visualizations** and filterable data tables
-    
-    ---
-    
-    ## 📊 Main Table Field Explanations
-    
-    | Field | Description | What It Tells You |
-    |-------|-------------|-------------------|
-    | **Symbol** | ETF ticker symbol | The fund being tracked |
-    | **Asset Class** | Investment category | Sector/theme (Technology, Healthcare, etc.) |
-    | **Score** | Blended momentum score | **Key metric: -100 to +100 momentum rating** |
-    | **Price** | Current/last price | Latest trading price |
-    | **24h %** | Daily change | 24-hour percentage change |
-    | **Volume** | Dollar volume | Total $ value traded (M = millions, B = billions) |
-    
-    ---
-    
-    ## 🎯 Momentum Score Components
-    
-    The **Blended Score** is calculated using five components:
-    
-    1. **Volume Activity (30%)** - Measures volume expansion/contraction
-    2. **Price Momentum (25%)** - Raw price movement strength
-    3. **Microstructure Score (20%)** - Balance of new highs vs new lows
-    4. **Liquidity Score (15%)** - Rewards higher dollar volume
-    5. **Confidence Multipliers (10%)** - Boosts for volume explosions and trend clarity
-    
-    ---
-    
-    ## 📈 Trading Signals
-    
-    - **Rising ETFs (Score > 0.5)**: Strong upward momentum, potential bullish continuation
-    - **Falling ETFs (Score < -0.5)**: Strong downward momentum, potential bearish continuation  
-    - **Neutral ETFs (-0.5 to 0.5)**: Sideways movement, no clear directional bias
-    
-    ---
-    
-    ## ⚠️ Important Notes
-    
-    **Market Hours Only**: Live data available 8:30 AM - 3:00 PM Central Time, Monday-Friday
-    
-    **Best Practices**:
-    1. Focus on high-volume ETFs (>$10M daily volume)
-    2. Cross-reference multiple indicators
-    3. Consider market conditions and news events
-    4. Use filters to focus on specific asset classes
-    
-    ---
-    
-    *Built by [@SwapStatsHub](https://x.com/swapstatshub) - Real-time ETF momentum tracking for active traders*
+## What This App Does
+
+The **ETF Momentum Dashboard** is a real-time analysis tool that monitors Exchange-Traded Funds (ETFs) during market hours (8:30 AM - 3:00 PM Central Time, Monday-Friday). It processes live market data to identify momentum patterns and provides actionable insights for traders and investors.
+
+### Key Features:
+- **Real-time ETF monitoring** with 30-second data refresh during market hours
+- **Advanced momentum scoring** using proprietary algorithms
+- **Asset class categorization** for sector-based analysis
+- **Interactive visualizations** and filterable data tables
+
+---
+
+## Field Explanations
+
+### 📊 Main Table Columns
+
+| Field | Description | What It Tells You |
+|-------|-------------|-------------------|
+| **Symbol** | ETF ticker symbol | The fund being tracked |
+| **Asset Class** | Investment category | Sector/theme (Technology, Healthcare, etc.) |
+| **Obs** | Number of observations | How many data points collected |
+| **Prices** | Unique price levels | Price granularity during session |
+| **Score** | Blended momentum score | **Key metric: -100 to +100 momentum rating** |
+| **Tops** | New high events | Times price hit session highs |
+| **Lows** | New low events | Times price hit session lows |
+| **Price** | Current/last price | Latest trading price |
+| **Last %** | Recent price change | Change from previous observation |
+| **Recent %** | Session range change | Change from first to last price |
+| **24h %** | Daily change | 24-hour percentage change |
+| **Day Vol** | Dollar volume | Total $ value traded (M = millions, B = billions) |
+| **Range** | Time span | Duration of data collection (MM:SS) |
+| **P.Ratio** | Price momentum ratio | Current vs historical price movement |
+| **V.Ratio** | Volume momentum ratio | Current vs historical volume activity |
+| **10 mn Vol** | Recent volume Surge Factor|
+| **Time** | Last update | When data was last refreshed |
+
+
+
+## 📈 Rising vs Falling ETFs
+
+### **Rising ETFs (Score > 0.5)**
+- **Strong upward momentum**
+- High volume + consistent new highs
+- Positive price trend with good liquidity
+- **Trading Signal**: Potential bullish continuation
+
+### **Falling ETFs (Score < -0.5)**
+- **Strong downward momentum** 
+- High volume + consistent new lows
+- Negative price trend with good liquidity
+- **Trading Signal**: Potential bearish continuation
+
+### **Neutral ETFs (-0.5 to 0.5)**
+- Sideways/choppy movement
+- Mixed signals or low activity
+- No clear directional bias
+
+
+---
+
+## ⚠️ Important Notes
+
+### **Market Hours Only**
+- Live data: **8:30 AM - 3:00 PM Central Time, Monday-Friday**
+- Outside hours: Data refresh stops, shows last market session
+
+### **Data Interpretation**
+- **Higher scores** don't guarantee profits
+- **Volume confirmation** is crucial - ignore low-volume moves
+- **Asset class context** matters - some sectors are naturally more volatile
+- **Time range** shows how long data was collected
+
+### **Best Practices**
+1. **Focus on high-volume ETFs** (>$10M daily volume)
+2. **Cross-reference multiple indicators** (Score + Tops/Lows + Volume)
+3. **Consider market conditions** and news events
+4. **Use filters** to focus on specific asset classes
+
+---
+
+## 🔧 Technical Details
+
+**Data Source**: Real-time market feeds processed every 30 seconds  
+**Calculation Engine**: Proprietary momentum algorithms with microstructure analysis  
+**Coverage**: 325+ most liquid ETFs across all asset classes  
+**Latency**: <30 seconds from market data to dashboard update
+
+---
+
+*Built by [SwapStatsHub](https://x.com/swapstatshub) - Real-time ETF momentum tracking for active traders*
     """)
 
 if __name__ == "__main__":
     main()
+
 
 
 
