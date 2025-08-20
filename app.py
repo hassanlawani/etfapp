@@ -235,7 +235,7 @@ def format_percentage(value):
 def main():
     # Title and header
     st.title("📈 ETF Momentum Dashboard")
-    st.markdown("Real-time ETF momentum tracking powered by advanced algorithms")
+    st.markdown("Real-time ETF momentum tracking powered by SwapStatsHub")
     
     # Market hours check
     if not is_market_open():
@@ -627,6 +627,7 @@ The **ETF Momentum Dashboard** is a real-time analysis tool that monitors Exchan
 
 if __name__ == "__main__":
     main()
+
 
 
 
