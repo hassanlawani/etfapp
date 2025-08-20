@@ -5,3 +5,4 @@ plotly>=5.15.0
 google-cloud-bigquery>=3.11.0
 google-auth>=2.22.0
 pytz>=2023.3
+db-dtypes>=1.1.0
