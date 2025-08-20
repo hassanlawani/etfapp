@@ -96,6 +96,7 @@ def load_etf_data():
         
         # Debug: Show available columns
         st.sidebar.write("Available columns:", list(df.columns))
+        st.sidebar.write("Data shape:", df.shape)
         
         # Process data
         df = process_etf_data(df)
@@ -104,7 +105,6 @@ def load_etf_data():
     except Exception as e:
         st.warning(f"BigQuery error: {str(e)}. Using demo data.")
         return create_demo_data()
-
 def create_demo_data():
     """Create realistic demo data"""
     np.random.seed(42)  # For consistent demo data
@@ -134,34 +134,54 @@ def create_demo_data():
 
 def process_etf_data(df):
     """Process and enrich ETF data"""
-    # Asset class mapping - use 'category' if it exists, otherwise create from symbol
+    # Handle the 'category' column - create if missing or fix if has None values
     if 'category' not in df.columns:
-        # Create category based on symbol patterns if investment_style doesn't exist
         df['category'] = df['symbol'].apply(lambda x: categorize_by_symbol(x))
+    else:
+        # Fill any None/NaN values in category
+        df['category'] = df['category'].fillna('Other')
+        df['category'] = df['category'].replace('', 'Other')
     
-    # Add momentum flag
-    df['momentum_flag'] = pd.cut(df['Blended'], 
-                                bins=[-np.inf, -0.5, 0.5, np.inf], 
-                                labels=['Falling', 'Neutral', 'Rising'])
+    # Add momentum flag if Blended column exists
+    if 'Blended' in df.columns:
+        df['momentum_flag'] = pd.cut(df['Blended'], 
+                                    bins=[-np.inf, -0.5, 0.5, np.inf], 
+                                    labels=['Falling', 'Neutral', 'Rising'])
+    else:
+        df['momentum_flag'] = 'Neutral'
+        df['Blended'] = 0.0
     
-    # Add missing calculated fields if they don't exist
-    if 'price_change_range' not in df.columns:
-        df['price_change_range'] = np.random.uniform(-0.03, 0.03, len(df))
-    if 'last_price_change' not in df.columns:
-        df['last_price_change'] = np.random.uniform(-0.01, 0.01, len(df))
-    if 'DoD_price_ratio' not in df.columns:
-        df['DoD_price_ratio'] = np.random.uniform(0.8, 1.2, len(df))
-    if 'DoD_Volume_ratio' not in df.columns:
-        df['DoD_Volume_ratio'] = np.random.uniform(0.5, 2.0, len(df))
-    if 'Recent_volume_Percent' not in df.columns:
-        df['Recent_volume_Percent'] = np.random.uniform(0.1, 0.8, len(df))
-    if 'time_range' not in df.columns:
-        df['time_range'] = np.random.choice(['15:30', '22:45', '31:20', '45:15'], len(df))
+    # Ensure required columns exist
+    required_columns = {
+        'USD_volume': lambda: np.random.lognormal(20, 1, len(df)),
+        'last_price': lambda: np.random.uniform(50, 500, len(df)),
+        'change_24h': lambda: np.random.normal(0, 2, len(df)),
+        'price_change_range': lambda: np.random.uniform(-0.03, 0.03, len(df)),
+        'last_price_change': lambda: np.random.uniform(-0.01, 0.01, len(df)),
+        'DoD_price_ratio': lambda: np.random.uniform(0.8, 1.2, len(df)),
+        'DoD_Volume_ratio': lambda: np.random.uniform(0.5, 2.0, len(df)),
+        'Recent_volume_Percent': lambda: np.random.uniform(0.1, 0.8, len(df)),
+        'time_range': lambda: np.random.choice(['15:30', '22:45', '31:20', '45:15'], len(df)),
+        'n_obs': lambda: np.random.randint(50, 200, len(df)),
+        'unique_prices': lambda: np.random.randint(20, 80, len(df)),
+        'tops': lambda: np.random.randint(2, 15, len(df)),
+        'lows': lambda: np.random.randint(1, 10, len(df)),
+        'end_time': lambda: [datetime.now()] * len(df)
+    }
+    
+    for col, default_func in required_columns.items():
+        if col not in df.columns:
+            df[col] = default_func()
     
     return df
 
 def categorize_by_symbol(symbol):
     """Categorize ETF by symbol if no other category exists"""
+    if pd.isna(symbol):
+        return 'Other'
+    
+    symbol = str(symbol).upper()
+    
     if symbol in ['SPY', 'VTI', 'IVV', 'VOO']:
         return 'US Broad Market'
     elif symbol in ['QQQ', 'XLK', 'NVDA', 'MSFT', 'AAPL']:
@@ -537,4 +557,5 @@ def display_help_content():
 
 if __name__ == "__main__":
     main()
+
 
