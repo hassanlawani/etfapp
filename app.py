@@ -292,13 +292,13 @@ def main():
     # Main content tabs
     tab1, tab2, tab3 = st.tabs(["📊 Live Dashboard", "🎯 Asset Classes", "❓ Help Guide"])
     
-    with tab1:
-        # Top rising and falling ETFs
-# Top rising and falling ETFs
-    col1, col2 = st.columns(2)
+with tab1:  # Line 295
+    # Top rising and falling ETFs  
+    col1, col2 = st.columns(2)  # Line 298 - properly indented
     
     with col1:
         st.subheader("🚀 Top Rising ETFs")
+        # rest of the code...
         rising_df = df[df['Blended'] > 0]
         if not rising_df.empty:
             display_etf_table(df, "rising")  # Pass full df, function handles filtering
@@ -595,6 +595,7 @@ def display_help_content():
 
 if __name__ == "__main__":
     main()
+
 
 
 
